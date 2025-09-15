@@ -22,5 +22,5 @@ source venv/bin/activate
 streamlit run app.py
 
 
-## app.py: generate story from image, add text manually 
-## app2.py: generate story from image, will up text automatically
+## app.py: generate story from image.
+## app2.py: generate story from image, will add text automatically

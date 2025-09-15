@@ -53,11 +53,9 @@ Be extremely descriptive and paint a complete picture with words."""
     except Exception as e:
         return f"Error generating description: {str(e)}"
 
-def enhance_caption_with_emotion(description, original_text=""):
+def enhance_caption_with_emotion(description):
     try:
         prompt = f"""You are a creative children's book narrator. Transform this detailed image description into an emotionally engaging, child-friendly narrative.
-
-Original story text (if any): {original_text}
 
 Detailed image description: {description}
 
@@ -118,7 +116,6 @@ for visually impaired children using a two-stage AI approach:
         if uploaded_file:
             image = Image.open(uploaded_file)
             st.image(image, caption="Uploaded Image", use_container_width=True)
-            original_text = st.text_area("Original Story Text (Optional)", height=100)
     
     with col2:
         st.header("Generated Captions")
@@ -129,15 +126,12 @@ for visually impaired children using a two-stage AI approach:
                 st.text_area("Raw Image Analysis:", value=description, height=150, key="stage1")
             
             with st.spinner("Enhancing..."):
-                enhanced_caption = enhance_caption_with_emotion(description, original_text)
+                enhanced_caption = enhance_caption_with_emotion(description)
                 st.subheader("Stage 2: Enhanced Caption")
                 st.text_area("Final Enhanced Caption:", value=enhanced_caption, height=200, key="stage2")
             
             st.success("Caption generation complete!")
-            caption_data = f"""ORIGINAL TEXT:
-{original_text}
-
-DETAILED DESCRIPTION:
+            caption_data = f"""DETAILED DESCRIPTION:
 {description}
 
 ENHANCED CAPTION:

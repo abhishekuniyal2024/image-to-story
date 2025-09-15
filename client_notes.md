@@ -1,4 +1,3 @@
-Date: 2-SEPT-2025
 Client: UK Client
 
 Project: Using LLMs and Vision Models to Create Picture Books for Visually Impaired Children
