@@ -5,6 +5,7 @@ from PIL import Image
 import io
 import os
 from dotenv import load_dotenv
+from datetime import datetime
 
 # Load environment variables
 load_dotenv()
@@ -12,13 +13,11 @@ load_dotenv()
 # Configure Groq client
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
-
 def encode_image_to_base64(image):
     """Convert PIL Image to base64 string"""
     buffered = io.BytesIO()
     image.save(buffered, format="PNG")
     return base64.b64encode(buffered.getvalue()).decode()
-
 
 def extract_text_from_image(image):
     """Extract text from image using Groq's vision model"""
@@ -54,9 +53,9 @@ If you see any text, write it exactly as it appears. If there's absolutely no re
         )
         result = chat_completion.choices[0].message.content.strip()
         return "" if result == "NO_TEXT" else result
-    except Exception:
+    except Exception as e:
+        st.error(f"Error extracting text: {str(e)}")
         return ""
-
 
 def generate_detailed_image_description(image):
     """Generate a detailed description of the image"""
@@ -93,8 +92,8 @@ Be extremely descriptive and paint a complete picture with words."""
         )
         return chat_completion.choices[0].message.content
     except Exception as e:
+        st.error(f"Error generating description: {str(e)}")
         return f"Error generating description: {str(e)}"
-
 
 def enhance_caption_with_emotion(description, extracted_text=""):
     """Turn a description into an emotionally rich, child-friendly narrative"""
@@ -142,23 +141,30 @@ Create an enhanced, emotionally-rich description that:
         )
         return chat_completion.choices[0].message.content
     except Exception as e:
+        st.error(f"Error enhancing caption: {str(e)}")
         return f"Error enhancing caption: {str(e)}"
 
-
 def main():
-    st.set_page_config(page_title="Picture Book Caption Generator", layout="wide")
+    st.set_page_config(
+        page_title="Picture Book Caption Generator", 
+        layout="wide"
+    )
+    
     st.title("AI Picture Book Caption Generator")
 
     st.markdown("""
-Generate rich, emotionally-driven descriptions of picture book images 
-for visually impaired children using an intelligent AI approach:
-- **Text Detection:** Automatically checks for text in images
-- **Image Analysis:** Detailed visual description
-- **Enhancement:** Creates emotionally engaging narratives
-""")
+    Generate rich, emotionally-driven descriptions of picture book images 
+    for visually impaired children using an intelligent AI approach:
+    - **Text Detection:** Automatically checks for text in images
+    - **Image Analysis:** Detailed visual description
+    - **Enhancement:** Creates emotionally engaging narratives
+    """)
 
+    # Sidebar configuration
     with st.sidebar:
         st.header("Configuration")
+        
+        # API Key status
         if os.getenv("GROQ_API_KEY"):
             st.success("Groq API Key loaded")
         else:
@@ -172,7 +178,8 @@ for visually impaired children using an intelligent AI approach:
         st.markdown("- Emotional enhancement")
         st.markdown("- Child-friendly narratives")
 
-    col1, col2 = st.columns(2)
+    # Main content area
+    col1, col2 = st.columns([1, 1])
 
     with col1:
         st.header("Upload Image")
@@ -183,64 +190,80 @@ for visually impaired children using an intelligent AI approach:
 
         if uploaded_file:
             image = Image.open(uploaded_file)
-            st.image(image, caption="Uploaded Image", width="stretch")
+            st.image(image, caption="Uploaded Image")
 
     with col2:
         st.header("Generated Caption")
-        if uploaded_file and st.button("Generate Enhanced Caption"):
-            with st.spinner("Processing image..."):
+        
+        if uploaded_file and st.button("Generate Enhanced Caption", type="primary"):
+            # Text extraction phase
+            with st.spinner("Scanning for text in image..."):
                 extracted_text = extract_text_from_image(image)
 
                 if extracted_text:
-                    st.success("✓ Text detected in image")
+                    st.success("Text detected in image")
                     with st.expander("View detected text"):
-                        st.text(extracted_text)
+                        st.text_area(
+                            "Extracted Text:",
+                            value=extracted_text,
+                            height=80,
+                            key="extracted_text",
+                            disabled=True
+                        )
                 else:
                     st.info("No text detected - proceeding with visual description only")
 
+            # Image analysis phase
             with st.spinner("Analyzing image details..."):
                 description = generate_detailed_image_description(image)
+                
                 with st.expander("View detailed analysis"):
                     st.text_area(
-                        "Image Analysis",
+                        "Image Analysis:",
                         value=description,
                         height=120,
                         key="analysis",
-                        label_visibility="collapsed"
+                        disabled=True
                     )
 
+            # Enhancement phase
             with st.spinner("Creating enhanced caption..."):
                 enhanced_caption = enhance_caption_with_emotion(description, extracted_text)
+                
                 st.subheader("Enhanced Caption")
                 st.text_area(
-                    "Enhanced Caption",
+                    "Final Caption:",
                     value=enhanced_caption,
                     height=200,
                     key="final_caption",
-                    label_visibility="collapsed"
+                    disabled=True
                 )
 
             st.success("Caption generation complete!")
 
-            caption_data = f"""IMAGE FILE: {uploaded_file.name}
-GENERATION DATE: {st.session_state.get('timestamp', 'N/A')}
+            # Download section
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            caption_data = f"""PICTURE BOOK CAPTION GENERATOR
+Generated on: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
-TEXT DETECTED: {"Yes" if extracted_text else "No"}
-{f'EXTRACTED TEXT: {extracted_text}' if extracted_text else ''}
+IMAGE FILE: {uploaded_file.name}
 
-DETAILED ANALYSIS:
+TEXT DETECTION STATUS: {"Text Found" if extracted_text else "No Text Detected"}
+{f'EXTRACTED TEXT:\n{extracted_text}\n' if extracted_text else ''}
+
+DETAILED IMAGE ANALYSIS:
 {description}
 
-ENHANCED CAPTION:
+ENHANCED CHILD-FRIENDLY CAPTION:
 {enhanced_caption}
 """
+            
             st.download_button(
                 "Download Results",
                 data=caption_data,
-                file_name=f"caption_{uploaded_file.name.split('.')[0]}.txt",
+                file_name=f"caption_{uploaded_file.name.split('.')[0]}_{timestamp}.txt",
                 mime="text/plain"
             )
-
 
 if __name__ == "__main__":
     main()
