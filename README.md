@@ -24,3 +24,4 @@ streamlit run app.py
 
 ## app.py: generate story from image.
 ## app2.py: generate story from image, will add text automatically
+## app3.py: make change in the app2.py to get what client want
