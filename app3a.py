@@ -4,9 +4,11 @@ import base64
 from PIL import Image
 import io
 import os
+import time
 from dotenv import load_dotenv
 from datetime import datetime
 import zipfile
+from gtts import gTTS  # Added gTTS import
 
 # Load environment variables
 load_dotenv()
@@ -33,6 +35,7 @@ def encode_image_to_base64(image):
 def extract_text_from_image(image):
     """Extract text from image using Groq's vision model"""
     base64_image = encode_image_to_base64(image)
+    
     try:
         chat_completion = client.chat.completions.create(
             messages=[
@@ -62,8 +65,10 @@ If you see any text, write it exactly as it appears. If there's absolutely no re
             max_tokens=200,
             temperature=0.1
         )
+        
         result = chat_completion.choices[0].message.content.strip()
         return "" if result == "NO_TEXT" else result
+        
     except Exception as e:
         st.error(f"Error extracting text: {str(e)}")
         return ""
@@ -71,6 +76,7 @@ If you see any text, write it exactly as it appears. If there's absolutely no re
 def generate_detailed_image_description(image):
     """Generate a detailed description of the image"""
     base64_image = encode_image_to_base64(image)
+    
     try:
         chat_completion = client.chat.completions.create(
             messages=[
@@ -79,13 +85,15 @@ def generate_detailed_image_description(image):
                     "content": [
                         {
                             "type": "text",
-                            "text": """You are an expert at describing images for children's picture books. 
+                            "text": """You are an expert at describing images for children's picture books.
+
 Analyze this image in great detail and provide a rich, vivid description that captures:
 - All characters, objects, and settings
 - Colors, textures, and visual details
 - Emotions and expressions
 - Actions and movements
 - Mood and atmosphere
+
 Be extremely descriptive and paint a complete picture with words."""
                         },
                         {
@@ -101,7 +109,9 @@ Be extremely descriptive and paint a complete picture with words."""
             max_tokens=500,
             temperature=0.7
         )
+        
         return chat_completion.choices[0].message.content
+        
     except Exception as e:
         st.error(f"Error generating description: {str(e)}")
         return f"Error generating description: {str(e)}"
@@ -127,7 +137,7 @@ Your task: Seamlessly blend the visual details into the original story to create
         else:
             # Fallback to enhanced caption if no story text provided
             return enhance_caption_with_emotion(image_description, extracted_text)
-
+        
         chat_completion = client.chat.completions.create(
             messages=[
                 {
@@ -143,7 +153,9 @@ Your task: Seamlessly blend the visual details into the original story to create
             max_tokens=500,
             temperature=0.8
         )
+        
         return chat_completion.choices[0].message.content
+        
     except Exception as e:
         st.error(f"Error integrating story: {str(e)}")
         return f"Error integrating story: {str(e)}"
@@ -176,7 +188,7 @@ Create an enhanced, emotionally-rich description that:
 - Adds emotional depth and wonder
 - Makes the scene come alive for a visually impaired child
 - Feels natural and story-like"""
-
+        
         chat_completion = client.chat.completions.create(
             messages=[
                 {
@@ -192,7 +204,9 @@ Create an enhanced, emotionally-rich description that:
             max_tokens=400,
             temperature=0.8
         )
+        
         return chat_completion.choices[0].message.content
+        
     except Exception as e:
         st.error(f"Error enhancing caption: {str(e)}")
         return f"Error enhancing caption: {str(e)}"
@@ -223,23 +237,64 @@ def process_single_image(image, story_text, filename):
     
     return results
 
+def enhance_text_for_audio(text):
+    """Use Groq LLM to enhance text for better audio narration"""
+    try:
+        prompt = f"""Make this children's story text more engaging for audio narration by:
+- Adding natural pauses with commas and periods
+- Making it more conversational and flowing
+- Emphasizing exciting or emotional parts appropriately
+- Ensuring it sounds natural when spoken aloud
+- Keeping the same meaning and story content
+
+Original text: {text}
+
+Enhanced version for audio:"""
+        
+        response = client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model="llama-3.3-70b-versatile",
+            max_tokens=600,
+            temperature=0.7
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        st.error(f"Error enhancing text for audio: {str(e)}")
+        return text  # Return original text if enhancement fails
+
+def generate_audio_with_gtts(text, filename, accent='us'):
+    """Generate audio using Google Text-to-Speech"""
+    try:
+        # Enhance text for better audio using LLM
+        enhanced_text = enhance_text_for_audio(text)
+        
+        # Set TLD based on accent preference
+        tld = 'com' if accent == 'us' else 'co.in'
+        
+        # Generate audio with gTTS
+        tts = gTTS(text=enhanced_text, lang='en', tld=tld)
+        tts.save(filename)
+        return True, enhanced_text
+    except Exception as e:
+        return False, str(e)
+
 def main():
     st.set_page_config(
-        page_title="Accessible Picture Book Generator", 
+        page_title="Accessible Picture Book Generator",
         layout="wide",
         page_icon="📚"
     )
     
     st.title("📚 Accessible Picture Book Generator")
-
     st.markdown("""
-    Create accessible picture books for visually impaired children by seamlessly integrating 
+    Create accessible picture books for visually impaired children by seamlessly integrating
     detailed image descriptions with existing story text:
+    
     - **Text Detection:** Automatically extracts text from images
-    - **Image Analysis:** Generates detailed visual descriptions  
+    - **Image Analysis:** Generates detailed visual descriptions
     - **Story Integration:** Blends descriptions naturally into original story
     - **Batch Processing:** Handle single images or complete picture books
-    - **Audio Output:** Optional text-to-speech for complete accessibility
+    - **Audio Output:** Natural US English text-to-speech for complete accessibility
     """)
 
     # Sidebar configuration
@@ -247,27 +302,29 @@ def main():
         st.header("Configuration")
         
         # API Key status
-        if os.getenv("GROQ_API_KEY"):
+        groq_api_key = os.getenv("GROQ_API_KEY")
+        if groq_api_key:
             st.success("✅ Groq API Key loaded")
         else:
             st.error("❌ Groq API Key not found")
             st.info("Add GROQ_API_KEY to your .env file")
-
+        
         st.markdown("---")
         st.markdown("**Processing Pipeline:**")
         st.markdown("1. 🔍 Text extraction from image")
         st.markdown("2. 🖼️ Detailed image analysis")
         st.markdown("3. 📝 Story integration")
-        st.markdown("4. 🔊 Optional audio generation")
+        st.markdown("4. 🤖 LLM text enhancement for audio")
+        st.markdown("5. 🔊 Natural voice generation")
         
         st.markdown("---")
         st.markdown("**Features:**")
         st.markdown("- Single & batch processing")
         st.markdown("- Seamless story integration")
         st.markdown("- Child-friendly narratives")
-        st.markdown("- Complete book export")
-        st.markdown("- Audio output support")
-
+        st.markdown("- LLM-enhanced audio narration")
+        st.markdown("- US English voice synthesis")
+        
         # Add clear results button in sidebar
         if st.session_state.results is not None:
             st.markdown("---")
@@ -314,7 +371,7 @@ def main():
                 st.write(f"📚 **{len(uploaded_files)} images uploaded**")
                 # Show thumbnails in a grid
                 cols = st.columns(min(4, len(uploaded_files)))
-                for i, file in enumerate(uploaded_files[:8]):  # Show max 8 thumbnails
+                for i, file in enumerate(uploaded_files[:8]):
                     with cols[i % 4]:
                         img = Image.open(file)
                         st.image(img, caption=f"Page {i+1}", use_container_width=True)
@@ -323,7 +380,6 @@ def main():
 
         # Story text input section
         st.subheader("📖 Story Text")
-        
         if processing_mode == "Single Image" and uploaded_files and uploaded_files[0] is not None:
             story_text = st.text_area(
                 "Enter the original story text for this page (optional):",
@@ -332,7 +388,6 @@ def main():
                 help="Provide the existing story text to create an integrated narrative. Leave empty for description-only mode."
             )
             story_texts = [story_text]
-        
         elif processing_mode == "Multiple Images (Complete Book)" and uploaded_files:
             st.write("Enter story text for each page:")
             story_texts = []
@@ -396,7 +451,7 @@ def main():
                 with st.spinner(f"Processing {uploaded_file.name}..."):
                     result = process_single_image(image, current_story_text, uploaded_file.name)
                     results.append(result)
-
+            
             # Clear progress indicators
             progress_bar.empty()
             status_text.empty()
@@ -411,7 +466,7 @@ def main():
         if st.session_state.results is not None:
             results = st.session_state.results
             processing_mode_used = st.session_state.processing_mode
-            
+
             # Display results
             if processing_mode_used == "Single Image":
                 # Single image display
@@ -423,16 +478,15 @@ def main():
                         st.text_area("Extracted Text:", value=result['extracted_text'], height=80, disabled=True, key="extracted_text_display")
                 else:
                     st.info("ℹ️ No text detected - proceeding with visual analysis")
-
+                
                 with st.expander("🔍 View detailed analysis"):
                     st.text_area("Image Analysis:", value=result['description'], height=120, disabled=True, key="analysis_display")
-
+                
                 st.subheader("📚 Final Result")
                 result_label = "Integrated Story" if result['type'] == 'integrated' else "Enhanced Caption"
                 st.text_area(result_label, value=result['final_text'], height=200, disabled=True, key="final_result_display")
                 
                 final_text = result['final_text']
-                
             else:
                 # Multiple images display
                 st.subheader("📖 Complete Accessible Book")
@@ -448,7 +502,7 @@ def main():
                     st.metric("Text Detected", text_detected_count)
                 with col_stat3:
                     st.metric("Story Integrated", integrated_count)
-
+                
                 # Display each page in expandable sections
                 for i, result in enumerate(results):
                     with st.expander(f"📄 Page {i+1}: {result['filename']}"):
@@ -475,7 +529,7 @@ def main():
                                 disabled=True,
                                 key=f"final_{i}_display"
                             )
-
+                
                 # Compile complete book text
                 complete_book = ""
                 for i, result in enumerate(results):
@@ -488,303 +542,121 @@ def main():
             # Store final text in session state
             st.session_state.final_text = final_text
 
-            # Audio Output Section
+            # UPDATED AUDIO OUTPUT SECTION WITH gTTS
             st.subheader("🔊 Audio Output")
             audio_enabled = st.checkbox("Enable audio generation", value=False, key="audio_checkbox")
-            
+
             if audio_enabled and st.session_state.final_text:
                 # Show text length info
                 text_length = len(st.session_state.final_text)
                 word_count = len(st.session_state.final_text.split())
-                estimated_duration = word_count / 2.5  # Average 150 words per minute
-                
+                estimated_duration = word_count / 2.5
                 st.info(f"📊 Text: {text_length} characters, {word_count} words (≈{estimated_duration:.1f} minutes)")
-                
+
                 # Audio settings
                 with st.expander("🎛️ Audio Settings"):
-                    speech_rate = st.slider("Speech Rate (words per minute)", 100, 200, 150)
-                    voice_selection = st.selectbox("Voice Type", ["Default", "Female", "Male"], index=0)
-                
+                    accent_choice = st.selectbox(
+                        "Voice Accent:",
+                        ["US English", "Indian English"],
+                        index=0,
+                        help="Choose between US or Indian English accent"
+                    )
+                    
+                    st.info("💡 Text will be enhanced by AI for better narration flow")
+
                 col_audio1, col_audio2 = st.columns(2)
-                
+
                 with col_audio1:
-                    if st.button("▶️ Play Audio", key="play_audio_btn"):
+                    if st.button("🎧 Generate & Play Audio Preview", key="preview_audio_btn"):
                         try:
-                            import pyttsx3
-                            
-                            with st.spinner("Initializing audio playback..."):
-                                engine = pyttsx3.init()
+                            with st.spinner("Generating audio preview..."):
+                                # Generate preview (first 200 words)
+                                preview_text = ' '.join(st.session_state.final_text.split()[:200])
+                                if len(st.session_state.final_text.split()) > 200:
+                                    preview_text += "..."
                                 
-                                # Configure engine properties
-                                engine.setProperty('rate', speech_rate)
-                                
-                                # Set voice if available
-                                voices = engine.getProperty('voices')
-                                if voices:
-                                    if voice_selection == "Female" and len(voices) > 1:
-                                        engine.setProperty('voice', voices[1].id)
-                                    elif voice_selection == "Male":
-                                        engine.setProperty('voice', voices[0].id)
-                                
-                                # For very long text, split into chunks
-                                text_to_speak = st.session_state.final_text
-                                if len(text_to_speak) > 5000:  # Split if longer than 5000 chars
-                                    st.info("📢 Playing audio in sections for better performance...")
-                                    
-                                    # Split by sentences or paragraphs
-                                    chunks = []
-                                    sentences = text_to_speak.replace('\n\n', '|||BREAK|||').split('.')
-                                    current_chunk = ""
-                                    
-                                    for sentence in sentences:
-                                        if '|||BREAK|||' in sentence:
-                                            if current_chunk:
-                                                chunks.append(current_chunk.strip())
-                                                current_chunk = ""
-                                            sentence = sentence.replace('|||BREAK|||', '')
-                                        
-                                        if len(current_chunk + sentence) < 1000:  # Keep chunks under 1000 chars
-                                            current_chunk += sentence + ". "
-                                        else:
-                                            if current_chunk:
-                                                chunks.append(current_chunk.strip())
-                                            current_chunk = sentence + ". "
-                                    
-                                    if current_chunk:
-                                        chunks.append(current_chunk.strip())
-                                    
-                                    # Play each chunk
-                                    for i, chunk in enumerate(chunks):
-                                        if chunk.strip():
-                                            st.text(f"Playing section {i+1}/{len(chunks)}...")
-                                            engine.say(chunk)
-                                            engine.runAndWait()
-                                else:
-                                    # Play entire text for shorter content
-                                    engine.say(text_to_speak)
-                                    engine.runAndWait()
-                                
-                                engine.stop()
-                            st.success("🎵 Audio playback completed!")
-                            
-                        except ImportError:
-                            st.error("❌ Please install pyttsx3: pip install pyttsx3")
-                        except Exception as e:
-                            st.error(f"🔊 Audio error: {str(e)}")
-                            st.info("💡 Try adjusting speech rate or splitting the text into smaller sections")
-                
-                with col_audio2:
-                    if st.button("💾 Save Audio File", key="save_audio_btn"):
-                        try:
-                            import pyttsx3
-                            import tempfile
-                            
-                            with st.spinner("Generating audio file..."):
                                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                                audio_filename = f"accessible_book_audio_{timestamp}.wav"
+                                preview_filename = f"preview_{timestamp}.mp3"
                                 
-                                # Simple reliable method for shorter text
-                                if len(st.session_state.final_text.split()) <= 100:
-                                    # For short text, use simple method
-                                    engine = pyttsx3.init()
-                                    engine.setProperty('rate', speech_rate)
+                                accent = 'us' if accent_choice == "US English" else 'in'
+                                success, enhanced_text = generate_audio_with_gtts(preview_text, preview_filename, accent)
+                                
+                                if success:
+                                    st.success("🎵 Audio preview generated!")
                                     
-                                    # Set voice if available
-                                    voices = engine.getProperty('voices')
-                                    if voices:
-                                        if voice_selection == "Female" and len(voices) > 1:
-                                            engine.setProperty('voice', voices[1].id)
-                                        elif voice_selection == "Male":
-                                            engine.setProperty('voice', voices[0].id)
+                                    # Show enhanced text
+                                    with st.expander("📝 View LLM-enhanced text"):
+                                        st.text_area("Enhanced for Audio:", value=enhanced_text[:500] + "..." if len(enhanced_text) > 500 else enhanced_text, height=100, disabled=True)
                                     
-                                    engine.save_to_file(st.session_state.final_text, audio_filename)
-                                    engine.runAndWait()
-                                    engine.stop()
+                                    # Audio player
+                                    with open(preview_filename, "rb") as audio_file:
+                                        audio_bytes = audio_file.read()
+                                        st.audio(audio_bytes, format="audio/mp3")
                                     
-                                    import time
-                                    time.sleep(3)  # Wait 3 seconds for file to be written
+                                    # Clean up preview file
+                                    try:
+                                        os.remove(preview_filename)
+                                    except:
+                                        pass
+                                else:
+                                    st.error(f"Failed to generate audio: {enhanced_text}")
                                     
-                                    if os.path.exists(audio_filename) and os.path.getsize(audio_filename) > 1000:
-                                        st.success("✅ Short audio saved successfully!")
+                        except Exception as e:
+                            st.error(f"Audio preview error: {str(e)}")
+
+                with col_audio2:
+                    if st.button("💾 Generate Full Audio File", key="save_audio_btn"):
+                        try:
+                            with st.spinner("Generating complete audio file..."):
+                                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                                audio_filename = f"accessible_book_audio_{timestamp}.mp3"
+                                
+                                accent = 'us' if accent_choice == "US English" else 'in'
+                                success, enhanced_text = generate_audio_with_gtts(st.session_state.final_text, audio_filename, accent)
+                                
+                                if success:
+                                    st.success("✅ Audio file generated successfully!")
+                                    
+                                    # Show file info
+                                    if os.path.exists(audio_filename):
                                         file_size = os.path.getsize(audio_filename)
                                         st.info(f"📁 File size: {file_size/1024:.1f} KB")
                                         
-                                        # Create download button
+                                        # Download button
                                         with open(audio_filename, "rb") as audio_file:
                                             audio_bytes = audio_file.read()
+                                            st.download_button(
+                                                label="⬇️ Download Complete Audio",
+                                                data=audio_bytes,
+                                                file_name=audio_filename,
+                                                mime="audio/mpeg",
+                                                key="download_audio_btn"
+                                            )
                                         
-                                        st.download_button(
-                                            label="⬇️ Download Audio File",
-                                            data=audio_bytes,
-                                            file_name=audio_filename,
-                                            mime="audio/wav",
-                                            key="download_audio_btn"
-                                        )
-                                    else:
-                                        st.error("Failed to save audio file properly")
-                                
+                                        # Show enhanced text preview
+                                        with st.expander("📝 View complete LLM-enhanced text"):
+                                            st.text_area("Full Enhanced Text:", value=enhanced_text, height=200, disabled=True)
+                                    
                                 else:
-                                    # For longer text, use chunking method
-                                    try:
-                                        engine = pyttsx3.init()
-                                        engine.setProperty('rate', speech_rate)
-                                        
-                                        # Set voice if available
-                                        voices = engine.getProperty('voices')
-                                        if voices:
-                                            if voice_selection == "Female" and len(voices) > 1:
-                                                engine.setProperty('voice', voices[1].id)
-                                            elif voice_selection == "Male":
-                                                engine.setProperty('voice', voices[0].id)
-                                        
-                                        # Split text into manageable chunks
-                                        text_to_save = st.session_state.final_text
-                                        st.info("📢 Processing long text in chunks for better quality...")
-                                        
-                                        # Split text into chunks of about 800 characters
-                                        chunks = []
-                                        sentences = text_to_save.replace('\n\n', ' PARAGRAPH_BREAK ').split('.')
-                                        current_chunk = ""
-                                        
-                                        for sentence in sentences:
-                                            sentence = sentence.replace(' PARAGRAPH_BREAK ', '\n\n')
-                                            if len(current_chunk + sentence) < 800:
-                                                current_chunk += sentence + ". "
-                                            else:
-                                                if current_chunk.strip():
-                                                    chunks.append(current_chunk.strip())
-                                                current_chunk = sentence + ". "
-                                        
-                                        if current_chunk.strip():
-                                            chunks.append(current_chunk.strip())
-                                        
-                                        # Save each chunk to temporary files
-                                        temp_files = []
-                                        for i, chunk in enumerate(chunks[:5]):  # Limit to first 5 chunks
-                                            if chunk.strip():
-                                                temp_filename = f"temp_chunk_{i}_{timestamp}.wav"
-                                                try:
-                                                    engine.save_to_file(chunk, temp_filename)
-                                                    engine.runAndWait()
-                                                    
-                                                    import time
-                                                    time.sleep(2)  # Wait for file to be written
-                                                    
-                                                    if os.path.exists(temp_filename) and os.path.getsize(temp_filename) > 1000:
-                                                        temp_files.append(temp_filename)
-                                                except Exception as chunk_error:
-                                                    st.warning(f"Error saving chunk {i+1}: {chunk_error}")
-                                        
-                                        engine.stop()
-                                        
-                                        # Use the first successfully created chunk as the audio file
-                                        if temp_files:
-                                            import shutil
-                                            shutil.copy2(temp_files[0], audio_filename)
-                                            
-                                            # Clean up temp files
-                                            for temp_file in temp_files:
-                                                try:
-                                                    if os.path.exists(temp_file):
-                                                        os.remove(temp_file)
-                                                except:
-                                                    pass
-                                            
-                                            if os.path.exists(audio_filename):
-                                                file_size = os.path.getsize(audio_filename)
-                                                st.success(f"💾 Audio saved (first section of {len(chunks)} total)")
-                                                st.info(f"📁 File size: {file_size/1024:.1f} KB")
-                                                st.warning("⚠️ Due to technical limitations, only the first section was saved")
-                                                
-                                                # Create download button
-                                                with open(audio_filename, "rb") as audio_file:
-                                                    audio_bytes = audio_file.read()
-                                                
-                                                st.download_button(
-                                                    label="⬇️ Download Audio Section",
-                                                    data=audio_bytes,
-                                                    file_name=audio_filename,
-                                                    mime="audio/wav",
-                                                    key="download_audio_chunk_btn"
-                                                )
-                                        else:
-                                            st.error("Failed to create audio chunks")
-                                            
-                                    except Exception as save_error:
-                                        st.error(f"Chunked save method failed: {save_error}")
-                                        
-                                        # Final fallback: Create preview version
-                                        try:
-                                            st.info("🔄 Creating preview version (first 200 words)...")
-                                            preview_text = ' '.join(st.session_state.final_text.split()[:200]) + "..."
-                                            
-                                            engine = pyttsx3.init()
-                                            engine.setProperty('rate', speech_rate)
-                                            
-                                            simple_filename = f"preview_audio_{timestamp}.wav"
-                                            engine.save_to_file(preview_text, simple_filename)
-                                            engine.runAndWait()
-                                            engine.stop()
-                                            
-                                            import time
-                                            time.sleep(3)
-                                            
-                                            if os.path.exists(simple_filename) and os.path.getsize(simple_filename) > 1000:
-                                                st.warning("⚠️ Created preview version (first 200 words)")
-                                                
-                                                with open(simple_filename, "rb") as audio_file:
-                                                    audio_bytes = audio_file.read()
-                                                
-                                                st.download_button(
-                                                    label="⬇️ Download Preview Audio",
-                                                    data=audio_bytes,
-                                                    file_name=simple_filename,
-                                                    mime="audio/wav",
-                                                    key="download_preview_btn"
-                                                )
-                                            else:
-                                                st.error("All audio save methods failed")
-                                                
-                                        except Exception as preview_error:
-                                            st.error(f"Preview method also failed: {preview_error}")
-                                            st.info("💡 Audio playback works, but file saving has technical limitations")
-                            
-                        except ImportError:
-                            st.error("❌ Please install pyttsx3: pip install pyttsx3")
+                                    st.error(f"Failed to generate audio: {enhanced_text}")
+                                    
                         except Exception as e:
-                            st.error(f"💾 Audio save error: {str(e)}")
-                            st.info("💡 Try using shorter text or the audio preview feature")
-                
-                # Alternative: Preview first few sentences
-                if word_count > 100:
-                    st.subheader("🎧 Audio Preview")
-                    preview_text = ' '.join(st.session_state.final_text.split()[:50]) + "..."
-                    
-                    if st.button("▶️ Play Preview (First 50 words)", key="preview_audio_btn"):
-                        try:
-                            import pyttsx3
-                            engine = pyttsx3.init()
-                            engine.setProperty('rate', speech_rate)
-                            engine.say(preview_text)
-                            engine.runAndWait()
-                            engine.stop()
-                            st.success("🎵 Preview completed!")
-                        except Exception as e:
-                            st.error(f"Preview error: {str(e)}")
+                            st.error(f"Audio generation error: {str(e)}")
 
             elif audio_enabled:
                 st.info("💡 Generate content first to enable audio features")
             else:
-                st.info("💡 Enable audio generation above for text-to-speech features")
+                st.info("💡 Enable audio generation above for natural voice synthesis")
 
             # Download section
             st.subheader("📁 Download Results")
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            
+
             if processing_mode_used == "Single Image":
                 # Single file download
                 result = results[0]
                 caption_data = f"""ACCESSIBLE PICTURE BOOK GENERATOR
+
 Generated on: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
 IMAGE FILE: {result['filename']}
@@ -793,6 +665,7 @@ ORIGINAL STORY TEXT:
 {result['story_text'] if result['story_text'].strip() else "No original story text provided"}
 
 TEXT DETECTION STATUS: {"Text Found" if result['extracted_text'] else "No Text Detected"}
+
 {f'EXTRACTED TEXT:\n{result["extracted_text"]}\n' if result['extracted_text'] else ''}
 
 RAW IMAGE ANALYSIS:
@@ -805,7 +678,7 @@ FINAL INTEGRATED STORY:
 Generated by Accessible Picture Book Generator
 For visually impaired children - bridging stories and sight through AI
 """
-                
+
                 st.download_button(
                     "📥 Download Results",
                     data=caption_data,
@@ -813,36 +686,36 @@ For visually impaired children - bridging stories and sight through AI
                     mime="text/plain",
                     key="download_single_btn"
                 )
-                
+
             else:
                 # Complete book download
                 complete_book_data = f"""ACCESSIBLE PICTURE BOOK - COMPLETE EDITION
+
 Generated on: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
 Total Pages: {len(results)}
 Processing Mode: Batch Processing
 
 {'='*60}
 COMPLETE ACCESSIBLE STORY
 {'='*60}
-
 """
-                
+
                 for i, result in enumerate(results):
                     complete_book_data += f"""
 PAGE {i+1}: {result['filename']}
+
 {result['final_text']}
 
 {'─'*40}
-
 """
-                
+
                 complete_book_data += f"""
 {'='*60}
 PROCESSING DETAILS
 {'='*60}
-
 """
-                
+
                 for i, result in enumerate(results):
                     complete_book_data += f"""PAGE {i+1} - {result['filename']}:
 Original Story Text: {result['story_text'] if result['story_text'].strip() else "None provided"}
@@ -857,7 +730,7 @@ Raw Analysis: {result['description']}
 Generated by Accessible Picture Book Generator
 For visually impaired children - bridging stories and sight through AI
 """
-                
+
                 st.download_button(
                     "📥 Download Complete Accessible Book",
                     data=complete_book_data,

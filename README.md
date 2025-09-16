@@ -25,3 +25,5 @@ streamlit run app.py
 ## app.py: generate story from image.
 ## app2.py: generate story from image, will add text automatically
 ## app3.py: make change in the app2.py to get what client want
+## app3a.py: fix audio in app3.py
+## app4.py: this code is app7a.py from iamge to story local.
