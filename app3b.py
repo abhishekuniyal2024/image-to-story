@@ -30,6 +30,10 @@ if 'final_text' not in st.session_state:
     st.session_state.final_text = None
 if 'uploaded_files_data' not in st.session_state:
     st.session_state.uploaded_files_data = None
+if 'last_audio_file' not in st.session_state:
+    st.session_state.last_audio_file = None
+if 'audio_downloaded' not in st.session_state:
+    st.session_state.audio_downloaded = False
 
 def encode_image_to_base64(image):
     """Convert PIL Image to base64 string"""
@@ -121,6 +125,29 @@ Be extremely descriptive and paint a complete picture with words."""
         st.error(f"Error generating description: {str(e)}")
         return f"Error generating description: {str(e)}"
 
+def ensure_complete_story(text, max_tokens=400):
+    """Ensure story ends with complete sentence"""
+    if not text:
+        return text
+        
+    text = text.strip()
+    
+    # Check if text ends abruptly (no proper punctuation)
+    if not text.endswith(('.', '!', '?')):
+        # Find last complete sentence
+        for punct in ['. ', '! ', '? ']:
+            last_punct = text.rfind(punct)
+            if last_punct != -1:
+                # Cut at last complete sentence
+                text = text[:last_punct + 1]
+                break
+        
+        # If still no proper ending, add simple conclusion
+        if not text.endswith(('.', '!', '?')):
+            text = text.rstrip() + "."
+    
+    return text
+
 def integrate_story_with_description(original_story, image_description, extracted_text=""):
     """Integrate image description with original story text"""
     try:
@@ -133,13 +160,16 @@ DETAILED IMAGE DESCRIPTION: {image_description}
 
 {f'TEXT IN IMAGE: "{extracted_text}"' if extracted_text else ''}
 
-Your task: Seamlessly blend the visual details into the original story to create one cohesive, enriched narrative that:
+Your task: Create a complete, concise story in 2-3 short paragraphs that:
+- Seamlessly blends visual details into the original story
 - Maintains the original story's tone and style
-- Naturally weaves in visual details without feeling forced
-- Creates a single, flowing narrative (not separate description + story)
+- Creates a single, flowing narrative
 - Makes the scene come alive for a visually impaired child
-- Feels like the story was originally written with these visual details included
-- Ensures the text flows naturally when read aloud"""
+- MUST END with a proper conclusion - no incomplete sentences
+- Keep it concise but emotionally rich
+- Ensure it reads naturally when spoken aloud
+
+IMPORTANT: Write a complete story that finishes properly within 2-3 paragraphs."""
         else:
             # Fallback to enhanced caption if no story text provided
             return enhance_caption_with_emotion(image_description, extracted_text)
@@ -148,7 +178,7 @@ Your task: Seamlessly blend the visual details into the original story to create
             messages=[
                 {
                     "role": "system",
-                    "content": "You are an expert at creating integrated, accessible children's stories that blend narrative and visual description seamlessly. Create text that reads naturally both on screen and when spoken aloud."
+                    "content": "You are an expert children's story narrator. Create complete, concise stories that finish properly within 2-3 paragraphs. Always end sentences and stories completely."
                 },
                 {
                     "role": "user",
@@ -156,11 +186,12 @@ Your task: Seamlessly blend the visual details into the original story to create
                 }
             ],
             model="llama-3.3-70b-versatile",
-            max_tokens=500,
+            max_tokens=400,  # KEEP AT 400
             temperature=0.8
         )
         
-        return chat_completion.choices[0].message.content
+        result = chat_completion.choices[0].message.content
+        return ensure_complete_story(result)
         
     except Exception as e:
         st.error(f"Error integrating story: {str(e)}")
@@ -170,36 +201,42 @@ def enhance_caption_with_emotion(description, extracted_text=""):
     """Turn a description into an emotionally rich, child-friendly narrative (fallback)"""
     try:
         if extracted_text:
-            prompt = f"""You are a creative children's book narrator. Transform this detailed image description into an emotionally engaging, child-friendly narrative.
+            prompt = f"""You are a creative children's book narrator. Create a complete, engaging story from this image description.
 
 Text found in the image: "{extracted_text}"
 
 Detailed image description: {description}
 
-Create an enhanced, emotionally-rich description that:
+Create a complete story in 2-3 short paragraphs that:
 - Uses vivid, child-friendly language
-- Naturally incorporates the text found in the image into the narrative
-- Incorporates sensory details
-- Adds emotional depth and wonder
+- Naturally incorporates the text found in the image
+- Includes sensory details and emotional depth
 - Makes the scene come alive for a visually impaired child
-- Feels natural and story-like when read aloud"""
+- MUST have a proper ending - no cut-off sentences
+- Reads naturally when spoken aloud
+- Is concise but emotionally rich
+
+IMPORTANT: Write a complete story that ends properly within 2-3 paragraphs."""
         else:
-            prompt = f"""You are a creative children's book narrator. Transform this detailed image description into an emotionally engaging, child-friendly narrative.
+            prompt = f"""You are a creative children's book narrator. Create a complete, engaging story from this image description.
 
 Detailed image description: {description}
 
-Create an enhanced, emotionally-rich description that:
+Create a complete story in 2-3 short paragraphs that:
 - Uses vivid, child-friendly language
-- Incorporates sensory details
-- Adds emotional depth and wonder
+- Includes sensory details and emotional depth
 - Makes the scene come alive for a visually impaired child
-- Feels natural and story-like when read aloud"""
+- MUST have a proper ending - no cut-off sentences
+- Reads naturally when spoken aloud
+- Is concise but emotionally rich
+
+IMPORTANT: Write a complete story that ends properly within 2-3 paragraphs."""
         
         chat_completion = client.chat.completions.create(
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a skilled children's book narrator creating vivid descriptions for visually impaired children. Write text that flows naturally when spoken aloud."
+                    "content": "You are a skilled children's narrator. Create complete, concise stories in 2-3 paragraphs that always end properly. Never leave sentences unfinished."
                 },
                 {
                     "role": "user",
@@ -207,11 +244,12 @@ Create an enhanced, emotionally-rich description that:
                 }
             ],
             model="llama-3.3-70b-versatile",
-            max_tokens=400,
+            max_tokens=400,  # KEEP AT 400
             temperature=0.8
         )
         
-        return chat_completion.choices[0].message.content
+        result = chat_completion.choices[0].message.content
+        return ensure_complete_story(result)
         
     except Exception as e:
         st.error(f"Error enhancing caption: {str(e)}")
@@ -244,26 +282,37 @@ def process_single_image(image, story_text, filename):
     return results
 
 def split_text_into_chunks(text, max_size=400):
-    """Split text into chunks while preserving sentence boundaries"""
+    """Split text into chunks while preserving sentence boundaries - FIXED VERSION"""
     chunks = []
-    sentences = text.replace('\n\n', ' [PARAGRAPH_BREAK] ').split('. ')
+    
+    # Simple sentence-based splitting without paragraph break placeholders
+    sentences = text.split('. ')
     current_chunk = ""
     
-    for sentence in sentences:
-        # Restore paragraph breaks
-        sentence = sentence.replace(' [PARAGRAPH_BREAK] ', '\n\n')
+    for i, sentence in enumerate(sentences):
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+            
+        # Add period back except for the last sentence (it might already have one)
+        if i < len(sentences) - 1 and not sentence.endswith('.'):
+            sentence += '. '
+        elif not sentence.endswith('.') and not sentence.endswith('!') and not sentence.endswith('?'):
+            sentence += '. '
+        else:
+            sentence += ' '
         
         # Check if adding this sentence would exceed the limit
-        if len(current_chunk + sentence + ". ") > max_size:
-            if current_chunk:
+        if len(current_chunk + sentence) > max_size:
+            if current_chunk.strip():
                 chunks.append(current_chunk.strip())
-                current_chunk = sentence + ". "
+                current_chunk = sentence
             else:
-                # Sentence itself is too long, split it further
+                # Single sentence is too long, split by words
                 words = sentence.split(' ')
                 for word in words:
                     if len(current_chunk + word + " ") > max_size:
-                        if current_chunk:
+                        if current_chunk.strip():
                             chunks.append(current_chunk.strip())
                             current_chunk = word + " "
                         else:
@@ -273,7 +322,7 @@ def split_text_into_chunks(text, max_size=400):
                     else:
                         current_chunk += word + " "
         else:
-            current_chunk += sentence + ". "
+            current_chunk += sentence
     
     # Add the last chunk
     if current_chunk.strip():
@@ -282,74 +331,72 @@ def split_text_into_chunks(text, max_size=400):
     return chunks
 
 def generate_audio_with_gtts(text, filename, accent='us'):
-    """Generate audio using Google Text-to-Speech - EXACT same text as displayed"""
+    """Generate audio using Google Text-to-Speech - WAV format for reliability"""
     try:
-        # Use the EXACT same text as displayed - NO enhancement or modification
+        # Use the EXACT same text as displayed
         audio_text = text
         
         # Set TLD based on accent preference
         tld = 'com' if accent == 'us' else 'co.in'
         
+        # Force WAV extension for reliability
+        if filename.endswith('.mp3'):
+            filename = filename.replace('.mp3', '.wav')
+        
         # Full path to output directory
         full_filename = os.path.join(OUTPUT_DIR, filename)
         
         # Check text length - if too long, split into chunks
-        max_chunk_size = 400  # Conservative limit for gTTS reliability
+        max_chunk_size = 400
         
         if len(audio_text) <= max_chunk_size:
-            # Short text - process normally
+            # Short text - process normally, save as MP3 first for gTTS
+            temp_mp3 = os.path.join(OUTPUT_DIR, "temp_single.mp3")
             tts = gTTS(text=audio_text, lang='en', tld=tld)
-            tts.save(full_filename)
+            tts.save(temp_mp3)
+            
+            # Convert to WAV
+            audio_segment = AudioSegment.from_mp3(temp_mp3)
+            audio_segment.export(full_filename, format="wav")
+            
+            # Clean up temp MP3
+            try:
+                os.remove(temp_mp3)
+            except:
+                pass
+            
+            st.info(f"✅ Audio saved as WAV in output folder")
             return True, audio_text, full_filename
         else:
-            # Long text - split into chunks and combine
+            # Long text - chunk processing with fixed chunking function
             chunks = split_text_into_chunks(audio_text, max_chunk_size)
             audio_segments = []
             
-            # Generate audio for each chunk
             for i, chunk in enumerate(chunks):
-                if chunk.strip():  # Skip empty chunks
+                if chunk.strip():
                     temp_filename = os.path.join(OUTPUT_DIR, f"temp_chunk_{i}.mp3")
                     tts = gTTS(text=chunk.strip(), lang='en', tld=tld)
                     tts.save(temp_filename)
                     
-                    # Load audio segment
                     segment = AudioSegment.from_mp3(temp_filename)
                     audio_segments.append(segment)
+                    audio_segments.append(AudioSegment.silent(duration=500))
                     
-                    # Add small pause between chunks (0.5 seconds)
-                    pause = AudioSegment.silent(duration=500)
-                    audio_segments.append(pause)
-                    
-                    # Clean up temp file
                     try:
                         os.remove(temp_filename)
                     except:
                         pass
             
-            # Combine all segments
             if audio_segments:
                 combined_audio = audio_segments[0]
                 for segment in audio_segments[1:]:
                     combined_audio += segment
                 
-                # Try MP3 first, fallback to WAV if it fails
-                final_filename = full_filename
-                try:
-                    # Try to export as MP3
-                    combined_audio.export(full_filename, format="mp3")
-                    st.info(f"✅ Audio saved as MP3 in output folder (matches displayed text exactly)")
-                except Exception as mp3_error:
-                    # Fallback to WAV if MP3 fails
-                    wav_filename = full_filename.replace('.mp3', '.wav')
-                    try:
-                        combined_audio.export(wav_filename, format="wav")
-                        final_filename = wav_filename
-                        st.warning(f"⚠️ MP3 export failed, saved as WAV in output folder (matches displayed text exactly)")
-                    except Exception as wav_error:
-                        return False, f"Both MP3 and WAV export failed: {wav_error}", full_filename
+                # Export as WAV
+                combined_audio.export(full_filename, format="wav")
+                st.info(f"✅ Audio saved as WAV in output folder")
                 
-                return True, audio_text, final_filename
+                return True, audio_text, full_filename
         
     except Exception as e:
         return False, str(e), os.path.join(OUTPUT_DIR, filename)
@@ -381,7 +428,7 @@ def main():
     - **Image Analysis:** Generates detailed visual descriptions
     - **Story Integration:** Blends descriptions naturally into original story
     - **Batch Processing:** Handle single images or complete picture books
-    - **Audio Output:** Natural voice synthesis matching displayed text exactly
+    - **Audio Output:** Natural WAV audio synthesis matching displayed text exactly
     
     📁 **All files saved to:** `{OUTPUT_DIR}/` folder
     """)
@@ -407,7 +454,7 @@ def main():
         st.markdown("1. 🔍 Text extraction from image")
         st.markdown("2. 🖼️ Detailed image analysis")
         st.markdown("3. 📝 Story integration")
-        st.markdown("4. 🔊 Identical audio generation")
+        st.markdown("4. 🔊 Complete story within 400 tokens")
         st.markdown("5. 💾 Save to output folder")
         
         st.markdown("---")
@@ -416,7 +463,7 @@ def main():
         st.markdown("- Seamless story integration")
         st.markdown("- Child-friendly narratives")
         st.markdown("- Audio matches text exactly")
-        st.markdown("- Organized file storage")
+        st.markdown("- Complete stories, no cut-offs")
         
         # Add clear results button in sidebar
         if st.session_state.results is not None:
@@ -425,6 +472,8 @@ def main():
                 st.session_state.results = None
                 st.session_state.final_text = None
                 st.session_state.uploaded_files_data = None
+                st.session_state.last_audio_file = None
+                st.session_state.audio_downloaded = False  # RESET DOWNLOAD STATE
                 st.rerun()
 
     # Main content area
@@ -635,7 +684,7 @@ def main():
             # Store final text in session state
             st.session_state.final_text = final_text
 
-            # AUDIO OUTPUT SECTION - SAVES TO OUTPUT FOLDER
+            # SIMPLIFIED AUDIO OUTPUT SECTION
             st.subheader("🔊 Audio Output")
             audio_enabled = st.checkbox("Enable audio generation", value=False, key="audio_checkbox")
 
@@ -660,7 +709,7 @@ def main():
                         help="Choose between US or Indian English accent"
                     )
                     
-                    st.success(f"✅ Audio will match displayed text exactly - saved to `{OUTPUT_DIR}/`")
+                    st.success(f"✅ Audio saved to `{OUTPUT_DIR}/` folder")
 
                 col_audio1, col_audio2 = st.columns(2)
 
@@ -674,25 +723,18 @@ def main():
                                     preview_text += "..."
                                 
                                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                                preview_filename = f"preview_{timestamp}.mp3"
+                                preview_filename = f"preview_{timestamp}.wav"
                                 
                                 accent = 'us' if accent_choice == "US English" else 'in'
                                 success, audio_text, final_filename = generate_audio_with_gtts(preview_text, preview_filename, accent)
                                 
                                 if success:
-                                    st.success(f"🎵 Audio preview generated and saved to `{OUTPUT_DIR}/`!")
-                                    
-                                    # Show that text matches exactly
-                                    with st.expander("📝 View audio text (identical to displayed text)"):
-                                        st.text_area("Audio Text:", value=audio_text[:500] + "..." if len(audio_text) > 500 else audio_text, height=100, disabled=True)
+                                    st.success(f"🎵 Audio preview saved!")
                                     
                                     # Audio player
                                     with open(final_filename, "rb") as audio_file:
                                         audio_bytes = audio_file.read()
-                                        if final_filename.endswith('.wav'):
-                                            st.audio(audio_bytes, format="audio/wav")
-                                        else:
-                                            st.audio(audio_bytes, format="audio/mp3")
+                                        st.audio(audio_bytes, format="audio/wav")
                                     
                                     # Show saved file path
                                     st.info(f"📁 Preview saved: `{final_filename}`")
@@ -708,38 +750,23 @@ def main():
                         try:
                             with st.spinner("Generating complete audio file..."):
                                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                                audio_filename = f"accessible_book_audio_{timestamp}.mp3"
+                                audio_filename = f"accessible_book_audio_{timestamp}.wav"
                                 
                                 accent = 'us' if accent_choice == "US English" else 'in'
                                 success, audio_text, final_filename = generate_audio_with_gtts(st.session_state.final_text, audio_filename, accent)
                                 
                                 if success:
-                                    st.success(f"✅ Complete audio file saved to `{OUTPUT_DIR}/`!")
+                                    st.success(f"✅ Complete audio file saved!")
+                                    
+                                    # Store audio file path and reset download state
+                                    st.session_state.last_audio_file = final_filename
+                                    st.session_state.audio_downloaded = False  # RESET DOWNLOAD STATE FOR NEW AUDIO
                                     
                                     # Show file info
                                     if os.path.exists(final_filename):
                                         file_size = os.path.getsize(final_filename)
-                                        file_format = "WAV" if final_filename.endswith('.wav') else "MP3"
                                         st.info(f"📁 File: `{final_filename}`")
-                                        st.info(f"📏 Format: {file_format}, Size: {file_size/1024:.1f} KB")
-                                        
-                                        # Download button (optional - file is already saved)
-                                        with open(final_filename, "rb") as audio_file:
-                                            audio_bytes = audio_file.read()
-                                            mime_type = "audio/wav" if final_filename.endswith('.wav') else "audio/mpeg"
-                                            st.download_button(
-                                                label=f"⬇️ Download Audio ({file_format})",
-                                                data=audio_bytes,
-                                                file_name=os.path.basename(final_filename),
-                                                mime=mime_type,
-                                                key="download_audio_btn",
-                                                help="File is already saved in output folder - this is for additional download"
-                                            )
-                                        
-                                        # Show that audio text matches exactly
-                                        with st.expander("📝 Confirm: Audio text matches displayed text exactly"):
-                                            st.text_area("Complete Audio Text:", value=audio_text, height=200, disabled=True)
-                                            st.success("✅ Audio content is identical to displayed text")
+                                        st.info(f"📏 Format: WAV, Size: {file_size/1024:.1f} KB")
                                     
                                 else:
                                     st.error(f"Failed to generate audio: {audio_text}")
@@ -750,10 +777,45 @@ def main():
             elif audio_enabled:
                 st.info("💡 Generate content first to enable audio features")
             else:
-                st.info(f"💡 Enable audio generation above - files will be saved to `{OUTPUT_DIR}/`")
+                st.info(f"💡 Enable audio generation above - files saved to `{OUTPUT_DIR}/`")
 
-            # Download section - NOW SAVES TO OUTPUT FOLDER
-            st.subheader("📁 Save Results")
+            # DOWNLOAD SECTION WITH PROPER STATE MANAGEMENT
+            if st.session_state.last_audio_file and os.path.exists(st.session_state.last_audio_file):
+                st.markdown("---")
+                st.subheader("📥 Download Audio")
+                
+                if not st.session_state.audio_downloaded:
+                    st.info("💡 Audio file is already saved in output folder. Use button below if you need to download it elsewhere.")
+                    
+                    # Direct download button
+                    with open(st.session_state.last_audio_file, "rb") as audio_file:
+                        audio_bytes = audio_file.read()
+                        st.download_button(
+                            label=f"⬇️ Download Audio File (WAV)",
+                            data=audio_bytes,
+                            file_name=os.path.basename(st.session_state.last_audio_file),
+                            mime="audio/wav",
+                            key="direct_download_audio_btn",
+                            help="Download audio file to your device"
+                        )
+                    
+                    # Mark as downloaded button
+                    if st.button("✅ Mark as Downloaded", key="mark_downloaded_btn", help="Click after downloading to hide the download button"):
+                        st.session_state.audio_downloaded = True
+                        st.success("🎉 Marked as downloaded!")
+                        st.rerun()
+                        
+                else:
+                    st.success("✅ Audio file marked as downloaded!")
+                    st.info(f"📁 Local file: `{st.session_state.last_audio_file}`")
+                    
+                    # Reset button to show download again
+                    if st.button("🔄 Show Download Button Again", key="show_download_again_btn"):
+                        st.session_state.audio_downloaded = False
+                        st.rerun()
+
+            # SAVE TEXT RESULTS SECTION
+            st.subheader("💾 Save Text Results")
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
             if processing_mode_used == "Single Image":
@@ -784,23 +846,14 @@ For visually impaired children - bridging stories and sight through AI
 Audio content matches text exactly for consistent experience
 """
 
-                if st.button("💾 Save Text Results to Output Folder", key="save_single_btn"):
+                # SINGLE SAVE BUTTON ONLY
+                if st.button("💾 Save Text Results", key="save_single_btn", help=f"Save text file to {OUTPUT_DIR}/ folder"):
                     filename = f"accessible_story_{timestamp}.txt"
                     saved_path = save_text_file(caption_data, filename)
                     if saved_path:
                         st.success(f"✅ Text results saved to: `{saved_path}`")
                     else:
                         st.error("❌ Failed to save text file")
-                
-                # Also provide download button
-                st.download_button(
-                    "⬇️ Download Results (Alternative)",
-                    data=caption_data,
-                    file_name=f"accessible_story_{timestamp}.txt",
-                    mime="text/plain",
-                    key="download_single_btn",
-                    help="Alternative download - file is saved to output folder above"
-                )
 
             else:
                 # Complete book save
@@ -847,23 +900,14 @@ For visually impaired children - bridging stories and sight through AI
 Audio content matches text exactly for consistent experience
 """
 
-                if st.button("💾 Save Complete Book to Output Folder", key="save_complete_btn"):
+                # SINGLE SAVE BUTTON ONLY
+                if st.button("💾 Save Complete Book", key="save_complete_btn", help=f"Save complete book to {OUTPUT_DIR}/ folder"):
                     filename = f"complete_accessible_book_{timestamp}.txt"
                     saved_path = save_text_file(complete_book_data, filename)
                     if saved_path:
                         st.success(f"✅ Complete book saved to: `{saved_path}`")
                     else:
                         st.error("❌ Failed to save complete book file")
-
-                # Also provide download button
-                st.download_button(
-                    "⬇️ Download Complete Book (Alternative)",
-                    data=complete_book_data,
-                    file_name=f"complete_accessible_book_{timestamp}.txt",
-                    mime="text/plain",
-                    key="download_complete_btn",
-                    help="Alternative download - file is saved to output folder above"
-                )
 
 if __name__ == "__main__":
     main()

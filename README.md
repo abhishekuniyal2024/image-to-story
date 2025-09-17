@@ -27,4 +27,5 @@ streamlit run app.py
 ## app3.py: make change in the app2.py to get what client want
 ## app3a.py: fixed audio issue in app3.py. it is not storing big audio file because of 'gTTS has a practical limit of around 500-600    characters per request for reliable processing'
 ## app3b.py: trying to fix app3a.py
+## app3c.py: tryin to fix app3b.py
 ## app4.py: this code is app7a.py from iamge to story local.
