@@ -4,3 +4,7 @@ streamlit
 pillow
 gtts
 requests
+
+# to solve long text audio issue, we install 'pydub' in app3b.py
+pydub
+audioop-lts
